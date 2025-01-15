@@ -1,6 +1,6 @@
 import json
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Command
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
@@ -22,18 +22,26 @@ users_accounts = {}
 def is_admin(user_id):
     return user_id in administrators
 
-user_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-user_keyboard.add(KeyboardButton("Добавиться в очередь"))
-user_keyboard.add(KeyboardButton("Удалиться из очереди"))
-user_keyboard.add(KeyboardButton("Узнать своё место"))
-user_keyboard.add(KeyboardButton("Просмотреть очередь"))
+def get_user_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("➕ Добавиться в очередь", callback_data="add_to_queue"),
+        InlineKeyboardButton("➖ Удалиться из очереди", callback_data="remove_from_queue"),
+        InlineKeyboardButton("🔍 Узнать своё место", callback_data="position_in_queue"),
+        InlineKeyboardButton("👀 Просмотреть очередь", callback_data="list_queue")
+    )
+    return keyboard
 
-admin_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-admin_keyboard.add(KeyboardButton("Добавиться в очередь"))
-admin_keyboard.add(KeyboardButton("Удалиться из очереди"))
-admin_keyboard.add(KeyboardButton("Узнать своё место"))
-admin_keyboard.add(KeyboardButton("Просмотреть очередь"))
-admin_keyboard.add(KeyboardButton("Очистить очередь"))
+def get_admin_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("➕ Добавиться в очередь", callback_data="add_to_queue"),
+        InlineKeyboardButton("➖ Удалиться из очереди", callback_data="remove_from_queue"),
+        InlineKeyboardButton("🔍 Узнать своё место", callback_data="position_in_queue"),
+        InlineKeyboardButton("👀 Просмотреть очередь", callback_data="list_queue"),
+        InlineKeyboardButton("🧹 Очистить очередь", callback_data="clear_queue")
+    )
+    return keyboard
 
 @dp.message_handler(commands=["start"])
 async def start_command(message: types.Message):
@@ -44,68 +52,83 @@ async def start_command(message: types.Message):
         users_accounts[user_id] = {"username": username, "in_queue": False}
 
     if is_admin(user_id):
-        await message.reply("Привет, администратор! Используй кнопки для работы с ботом.", reply_markup=admin_keyboard)
+        await message.reply("Привет, солнышко! Используй кнопочки для работы с ботом.", reply_markup=get_admin_keyboard())
     else:
-        await message.reply("Привет! Используй кнопки для работы с ботом.", reply_markup=user_keyboard)
+        await message.reply("Вот вам ботяра, чтобы в чат не спамили!", reply_markup=get_user_keyboard())
 
-@dp.message_handler(lambda message: message.text == "Добавиться в очередь")
-async def add_to_queue(message: types.Message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
+@dp.callback_query_handler(lambda query: query.data == "add_to_queue")
+async def add_to_queue(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
+    username = callback_query.from_user.username or callback_query.from_user.first_name
+
+    if user_id not in users_accounts:
+        users_accounts[user_id] = {"username": username, "in_queue": False}
 
     if user_id in queue:
-        await message.reply("Вы уже в очереди!")
+        await callback_query.answer("Вы уже в очереди!")
     else:
         queue.append(user_id)
         users_accounts[user_id]["in_queue"] = True
-        await message.reply(f"Вы добавлены в очередь. Ваш номер: {len(queue)}.")
+        await callback_query.answer(f"Вы добавлены в очередь. Ваш номер: {len(queue)}.")
 
-@dp.message_handler(lambda message: message.text == "Удалиться из очереди")
-async def remove_from_queue(message: types.Message):
-    user_id = message.from_user.id
+@dp.callback_query_handler(lambda query: query.data == "remove_from_queue")
+async def remove_from_queue(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
 
     if user_id in queue:
         queue.remove(user_id)
         users_accounts[user_id]["in_queue"] = False
-        await message.reply("Вы удалены из очереди.")
+        await callback_query.answer("Вы удалены из очереди.")
     else:
-        await message.reply("Вас нет в очереди.")
+        await callback_query.answer("Вас нет в очереди.")
 
-@dp.message_handler(lambda message: message.text == "Узнать своё место")
-async def position_in_queue(message: types.Message):
-    user_id = message.from_user.id
+@dp.callback_query_handler(lambda query: query.data == "position_in_queue")
+async def position_in_queue(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
 
     if user_id in queue:
         position = queue.index(user_id) + 1
-        await message.reply(f"Ваше место в очереди: {position}.")
+        await callback_query.answer(f"Ваше место в очереди: {position}.")
     else:
-        await message.reply("Вас нет в очереди.")
+        await callback_query.answer("Вас нет в очереди.")
 
-@dp.message_handler(lambda message: message.text == "Просмотреть очередь")
-async def list_queue(message: types.Message):
-    user_id = message.from_user.id
+@dp.callback_query_handler(lambda query: query.data == "list_queue")
+async def list_queue(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
 
     if queue:
         if is_admin(user_id):
-            users_list = "\n".join([f"{i + 1}. {users_accounts[user_id]['username']} (ID: {user_id})" for i, user_id in enumerate(queue)])
-            await message.reply(f"Очередь:\n{users_list}")
+            users_list = []
+            for i, user_id_in_queue in enumerate(queue):
+                if user_id_in_queue in users_accounts:
+                    username = users_accounts[user_id_in_queue]["username"]
+                    users_list.append(f"{i + 1}. {username} (ID: {user_id_in_queue})")
+                else:
+                    users_list.append(f"{i + 1}. Неизвестный пользователь (ID: {user_id_in_queue})")
+            await callback_query.message.answer(f"Очередь:\n" + "\n".join(users_list))
         else:
-            users_list = "\n".join([f"{i + 1}. {users_accounts[user_id]['username']}" for i, user_id in enumerate(queue)])
-            await message.reply(f"Очередь:\n{users_list}")
+            users_list = []
+            for i, user_id_in_queue in enumerate(queue):
+                if user_id_in_queue in users_accounts:
+                    username = users_accounts[user_id_in_queue]["username"]
+                    users_list.append(f"{i + 1}. {username}")
+                else:
+                    users_list.append(f"{i + 1}. Неизвестный пользователь")
+            await callback_query.message.answer(f"Очередь:\n" + "\n".join(users_list))
     else:
-        await message.reply("Очередь пуста.")
+        await callback_query.message.answer("Очередь пуста.")
 
-@dp.message_handler(lambda message: message.text == "Очистить очередь")
-async def clear_queue(message: types.Message):
-    user_id = message.from_user.id
+@dp.callback_query_handler(lambda query: query.data == "clear_queue")
+async def clear_queue(callback_query: types.CallbackQuery):
+    user_id = callback_query.from_user.id
 
     if is_admin(user_id):
         queue.clear()
         for user in users_accounts:
             users_accounts[user]["in_queue"] = False
-        await message.reply("Очередь очищена.")
+        await callback_query.message.answer("Очередь очищена.")
     else:
-        await message.reply("Эта команда доступна только администраторам.")
+        await callback_query.answer("Эта команда доступна только администраторам.")
 
 @dp.message_handler()
 async def unknown_command(message: types.Message):
