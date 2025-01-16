@@ -1,1 +1,4 @@
-aiogram==2.25.1
+aiogram==2.21
+pandas==1.5.3
+openpyxl==3.0.10
+sqlite3==0.0.1
