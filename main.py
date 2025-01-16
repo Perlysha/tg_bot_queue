@@ -3,9 +3,7 @@ import json
 import asyncio
 import pandas as pd
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils import executor
-from aiogram.dispatcher.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
 import logging
 
@@ -19,7 +17,7 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
-conn = sqlite3.connect("queue_bot.db")
+conn = sqlite3.connect("queue_bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -34,6 +32,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    username TEXT,
     notified BOOLEAN DEFAULT FALSE,
     FOREIGN KEY(user_id) REFERENCES users(user_id)
 )
@@ -45,9 +44,14 @@ except sqlite3.OperationalError:
     cursor.execute("ALTER TABLE queue ADD COLUMN notified BOOLEAN DEFAULT FALSE")
     conn.commit()
 
+try:
+    cursor.execute("SELECT username FROM queue LIMIT 1")
+except sqlite3.OperationalError:
+    cursor.execute("ALTER TABLE queue ADD COLUMN username TEXT")
+    conn.commit()
+
 def export_to_excel():
     users_df = pd.read_sql_query("SELECT * FROM users", conn)
-
     queue_df = pd.read_sql_query("SELECT * FROM queue", conn)
 
     with pd.ExcelWriter("queue_data.xlsx") as writer:
@@ -111,6 +115,7 @@ async def export_data(message: types.Message):
 @dp.callback_query_handler(lambda query: query.data == "add_to_queue")
 async def add_to_queue(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
+    username = callback_query.from_user.username or callback_query.from_user.first_name
 
     cursor.execute("SELECT in_queue FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
@@ -118,7 +123,7 @@ async def add_to_queue(callback_query: types.CallbackQuery):
     if user and user[0]:
         await callback_query.answer("Вы уже в очереди!")
     else:
-        cursor.execute("INSERT INTO queue (user_id) VALUES (?)", (user_id,))
+        cursor.execute("INSERT INTO queue (user_id, username) VALUES (?, ?)", (user_id, username))
         cursor.execute("UPDATE users SET in_queue = ? WHERE user_id = ?", (True, user_id))
         conn.commit()
 
@@ -160,7 +165,6 @@ async def position_in_queue(callback_query: types.CallbackQuery):
     else:
         await callback_query.answer("Вас нет в очереди.")
 
-
 @dp.callback_query_handler(lambda query: query.data == "list_queue")
 async def list_queue(callback_query: types.CallbackQuery):
     cursor.execute("SELECT users.username FROM queue JOIN users ON queue.user_id = users.user_id ORDER BY queue.id")
@@ -197,12 +201,12 @@ async def export_to_excel_callback(callback_query: types.CallbackQuery):
 
 async def notify_next():
     while True:
-        cursor.execute("SELECT user_id FROM queue WHERE notified = FALSE ORDER BY id LIMIT 1")
+        cursor.execute("SELECT user_id, username FROM queue WHERE notified = FALSE ORDER BY id LIMIT 1")
         next_user = cursor.fetchone()
 
         if next_user:
-            user_id = next_user[0]
-            await bot.send_message(user_id, "Ты следующий).")
+            user_id, username = next_user
+            await bot.send_message(user_id, f"Ты следующий, {username}!")
 
             cursor.execute("UPDATE queue SET notified = TRUE WHERE user_id = ?", (user_id,))
             conn.commit()
